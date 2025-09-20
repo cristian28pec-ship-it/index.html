@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recordatorios App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Expose Firebase modules globally for use in JSX
+        window.firebase = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, getDocs, setLogLevel };
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
+        .reminder-card {
+            background-color: white;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease-in-out;
+        }
+        .tag {
+            background-color: #dbeafe;
+            color: #1e40af;
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+        }
+        .modal {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+        .animate-fade-in-up {
+            animation: fadeInUp 0.5s ease-out;
+        }
+        .animate-scale-in {
+            animation: scaleIn 0.3s ease-out;
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes scaleIn {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, doc, addDoc, setDoc, deleteDoc, onSnapshot, getDocs, setLogLevel } = window.firebase;
+        
+        // Iconos
+        const Calendar = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>;
+        const MapPin = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z"></path><circle cx="12" cy="9" r="3"></circle></svg>;
+        const Tag = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12.5 22H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8.5"></path><path d="M22 17H15v7"></path><path d="M15 17l7 7"></path><path d="M16 8h.01"></path><path d="M7 12h.01"></path></svg>;
+        const Edit = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>;
+        const Trash2 = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>;
+        const CheckCircle = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-8.87"></path><path d="M22 4L12 14.01l-3-3"></path></svg>;
+        const Bell = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>;
+        const XCircle = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><path d="M15 9l-6 6"></path><path d="M9 9l6 6"></path></svg>;
+        const Undo2 = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 14L4 9l5-5"></path><path d="M20 20v-5.267a3 3 0 0 0-.879-2.121l-5.71-5.71a3 3 0 0 0-4.242 0L4 9"></path></svg>;
+        const Map = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>;
+        const Hand = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M20 10.5a2.5 2.5 0 0 1-5 0V7a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v3.91l-1.92-2.11A2 2 0 0 0 7 9.17l-3.23 2.87A2 2 0 0 0 3 13.91V21a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-5.5a2.5 2.5 0 0 0-2.5-2.5h-5.91a2 2 0 0 0-1.28.46l-2.4 2.12"></path></svg>;
+        const List = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>;
+        const Settings = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.08a2 2 0 0 1 1 1.73v.5a2 2 0 0 1-1 1.73l-.15.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2-2.0l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.73v-.5a2 2 0 0 1 1-1.73l.15-.08a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2-2.0l-.43-.25a2 2 0 0 1-1-1.73z"></path><circle cx="12" cy="12" r="3"></circle></svg>;
+        const Check = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M20 6L9 17l-5-5"></path></svg>;
+        const User = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>;
+        const Filter = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>;
+        const SortAsc = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 17L4 12l5-5"></path><line x1="16" y1="21" x2="16" y2="3"></line></svg>;
+        const Search = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>;
+        const Signal = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 13h2.33a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2H2"></path><path d="M12 20h2.33a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2h-2.33"></path><path d="M6 18H2"></path><path d="M22 6h-2.33a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2.33"></path><path d="M10 20h4"></path><path d="M18 18h4"></path></svg>;
+        const SignalZero = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 20v-4"></path><path d="M22 20v-4"></path><path d="M13 20v-2.34"></path><path d="M11 20v-2.34"></path><path d="M6 20v-1"></path><path d="M18 20v-1"></path><path d="M13 14h-2a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2z"></path></svg>;
+        const RefreshCw = ({ size = 24, className = "" }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>;
+
+        const appId = 'default-app-id';
+        const firebaseConfig = {};
+        const initialAuthToken = null;
+
+        const app = firebase.initializeApp(firebaseConfig);
+        const db = firebase.getFirestore(app);
+        const auth = firebase.getAuth(app);
+        firebase.setLogLevel('debug');
+
+        const LOCATION_THRESHOLD = 50;
+        const dayMap = { 'Domingo': 0, 'Lunes': 1, 'Martes': 2, 'Miércoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6 };
+        const dayMapReverse = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+        const App = () => {
+            const [userId, setUserId] = useState(null);
+            const [reminders, setReminders] = useState([]);
+            const [allTags, setAllTags] = useState([]);
+            const [newReminderText, setNewReminderText] = useState('');
+            const [newReminderTags, setNewReminderTags] = useState('');
+            const [isLocationBased, setIsLocationBased] = useState(false);
+            const [newLocationName, setNewLocationName] = useState('');
+            const [newReminderDate, setNewReminderDate] = useState('');
+            const [newReminderTime, setNewReminderTime] = useState('');
+            const [alarmSound, setAlarmSound] = useState('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+            const [selectedDays, setSelectedDays] = useState([]);
+            const [isVibration, setIsVibration] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [currentLocation, setCurrentLocation] = useState(null);
+            const [locationStatus, setLocationStatus] = useState('');
+            const [isAlarmModalOpen, setIsAlarmModalOpen] = useState(false);
+            const [activeAlarm, setActiveAlarm] = useState(null);
+            const [showCompleted, setShowCompleted] = useState(false);
+            const [searchText, setSearchText] = useState('');
+            const [filterType, setFilterType] = useState('all');
+            const [sortBy, setSortBy] = useState('createdAt');
+            const [isFirstLaunch, setIsFirstLaunch] = useState(true);
+            const [messageModal, setMessageModal] = useState({ isOpen: false, text: '', isError: false });
+            const [isOnline, setIsOnline] = useState(navigator.onLine);
+            const [repeatFrequency, setRepeatFrequency] = useState('none');
+            const [isSaving, setIsSaving] = useState(false);
+
+            const alarmAudioRef = useRef(null);
+            const watchIdRef = useRef(null);
+            const reminderTimeoutsRef = useRef({});
+
+            useEffect(() => {
+                const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
+                if (hasSeenOnboarding) {
+                    setIsFirstLaunch(false);
+                }
+            }, []);
+
+            const handleStartApp = () => {
+                setIsFirstLaunch(false);
+                localStorage.setItem('hasSeenOnboarding', 'true');
+                if ("Notification" in window) {
+                    Notification.requestPermission().then(permission => {
+                        if (permission === "granted") {
+                            console.log("Permiso de notificación concedido.");
+                        } else {
+                            console.warn("Permiso de notificación denegado.");
+                        }
+                    });
+                }
+            };
+
+            useEffect(() => {
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                        console.log("Usuario autenticado con ID:", user.uid);
+                    } else {
+                        console.log("No hay usuario autenticado, intentando iniciar sesión.");
+                        try {
+                            if (initialAuthToken) {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            console.error("Error al iniciar sesión en Firebase:", error.message, error.code);
+                        }
+                    }
+                });
+            }, []);
+
+            useEffect(() => {
+                if (!userId) return;
+
+                const remindersRef = collection(db, `artifacts/${appId}/users/${userId}/reminders`);
+                const tagsRef = collection(db, `artifacts/${appId}/users/${userId}/tags`);
+
+                const unsubscribeReminders = onSnapshot(remindersRef, (snapshot) => {
+                    const fetchedReminders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setReminders(fetchedReminders);
+                    scheduleTimeAlarms(fetchedReminders);
+                }, (error) => {
+                    console.error("Error al obtener los recordatorios:", error);
+                });
+                
+                const unsubscribeTags = onSnapshot(tagsRef, (snapshot) => {
+                    const fetchedTags = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setAllTags(fetchedTags);
+                }, (error) => {
+                    console.error("Error al obtener las etiquetas:", error);
+                });
+
+                return () => {
+                    unsubscribeReminders();
+                    unsubscribeTags();
+                };
+            }, [userId]);
+            
+            useEffect(() => {
+                const handleOnline = () => setIsOnline(true);
+                const handleOffline = () => setIsOnline(false);
+
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            useEffect(() => {
+                if (userId) {
+                    startGeolocationWatch();
+                }
+                return () => {
+                    if (watchIdRef.current) {
+                        navigator.geolocation.clearWatch(watchIdRef.current);
+                    }
+                };
+            }, [userId]);
+
+            const startGeolocationWatch = () => {
+                if (!('geolocation' in navigator)) {
+                    setLocationStatus('Geolocalización no soportada en este navegador.');
+                    return;
+                }
+
+                if (watchIdRef.current) {
+                    navigator.geolocation.clearWatch(watchIdRef.current);
+                }
+
+                watchIdRef.current = navigator.geolocation.watchPosition(
+                    (position) => {
+                        const { latitude, longitude } = position.coords;
+                        setCurrentLocation({ latitude, longitude });
+                        setLocationStatus(`Ubicación actualizada: Lat ${latitude.toFixed(4)}, Lng ${longitude.toFixed(4)}`);
+                        checkLocationReminders(latitude, longitude);
+                    },
+                    (error) => {
+                        let userFriendlyMessage = "Error al obtener la ubicación.";
+                        switch (error.code) {
+                            case error.PERMISSION_DENIED:
+                                userFriendlyMessage = "Por favor, permite el acceso a la ubicación en la configuración de tu navegador para usar esta función.";
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                userFriendlyMessage = "La información de ubicación no está disponible actualmente.";
+                                break;
+                            case error.TIMEOUT:
+                                userFriendlyMessage = "No se pudo obtener la ubicación a tiempo.";
+                                break;
+                        }
+                        setLocationStatus(userFriendlyMessage);
+                        console.error('Error de geolocalización:', error.message || 'Error desconocido', 'Código:', error.code, 'Objeto:', error);
+                    },
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                );
+            };
+
+            const getCurrentLocation = () => {
+                if (!('geolocation' in navigator)) {
+                    setMessageModal({ isOpen: true, text: 'Geolocalización no soportada en este navegador.', isError: true });
+                    return;
+                }
+                setLocationStatus('Obteniendo ubicación...');
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const { latitude, longitude } = position.coords;
+                        setCurrentLocation({ latitude, longitude });
+                        setLocationStatus(`Ubicación guardada: Lat ${latitude.toFixed(4)}, Lng ${longitude.toFixed(4)}`);
+                    },
+                    (error) => {
+                        let userFriendlyMessage = "Error al obtener la ubicación.";
+                        if (error.code === error.PERMISSION_DENIED) {
+                            userFriendlyMessage = "Permiso denegado. Por favor, habilita la ubicación en la configuración del navegador.";
+                        }
+                        setMessageModal({ isOpen: true, text: userFriendlyMessage, isError: true });
+                        setLocationStatus(userFriendlyMessage);
+                        console.error('Error de geolocalización:', error.message || 'Error desconocido', 'Código:', error.code, 'Objeto:', error);
+                    }
+                );
+            };
+
+            const checkLocationReminders = (lat, lng) => {
+                const locationReminders = reminders.filter(r => r.isLocationBased && !r.isCompleted && !r.isAlarmDismissed);
+                locationReminders.forEach(reminder => {
+                    const distance = haversineDistance(lat, lng, reminder.location.latitude, reminder.location.longitude);
+                    if (distance <= LOCATION_THRESHOLD) {
+                        triggerAlarm(reminder.id, reminder);
+                    }
+                });
+            };
+
+            const haversineDistance = (lat1, lon1, lat2, lon2) => {
+                const toRad = (x) => x * Math.PI / 180;
+                const R = 6371e3;
+                const φ1 = toRad(lat1);
+                const φ2 = toRad(lat2);
+                const Δφ = toRad(lat2 - lat1);
+                const Δλ = toRad(lon2 - lon1);
+                const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
+            };
+
+            const scheduleTimeAlarms = (allReminders) => {
+                for (const timeoutId of Object.values(reminderTimeoutsRef.current)) {
+                    clearTimeout(timeoutId);
+                }
+                reminderTimeoutsRef.current = {};
+
+                allReminders.forEach((reminder) => {
+                    if (!reminder.isCompleted && !reminder.isAlarmDismissed && !reminder.isLocationBased) {
+                        const nextAlarmTime = findNextAlarmTime(reminder);
+                        if (nextAlarmTime) {
+                            const timeToAlarm = nextAlarmTime.getTime() - new Date().getTime();
+                            if (timeToAlarm > 0) {
+                                const timeoutId = setTimeout(() => {
+                                    triggerAlarm(reminder.id, reminder);
+                                }, timeToAlarm);
+                                reminderTimeoutsRef.current[reminder.id] = timeoutId;
+                            }
+                        }
+                    }
+                });
+            };
+            
+            const findNextAlarmTime = (reminder) => {
+                const now = new Date();
+                const [alarmHour, alarmMinute] = reminder.time.split(':').map(Number);
+                const reminderDate = new Date(`${reminder.date}T${reminder.time}`);
+                
+                let nextOccurrence = null;
+
+                if (reminder.repeatFrequency === 'none') {
+                    nextOccurrence = reminderDate;
+                } else if (reminder.repeatFrequency === 'weekly' && reminder.selectedDays) {
+                    const sortedDays = reminder.selectedDays.map(day => dayMap[day]).sort((a, b) => a - b);
+                    const daysUntil = sortedDays.map(day => (day - now.getDay() + 7) % 7).sort((a, b) => a - b);
+                    
+                    let nextDayDiff;
+                    const nowTimeInMinutes = now.getHours() * 60 + now.getMinutes();
+                    const alarmTimeInMinutes = alarmHour * 60 + alarmMinute;
+
+                    if (daysUntil[0] === 0 && nowTimeInMinutes >= alarmTimeInMinutes) {
+                        nextDayDiff = daysUntil.length > 1 ? daysUntil[1] : 7;
+                    } else {
+                        nextDayDiff = daysUntil[0];
+                    }
+                    
+                    nextOccurrence = new Date(now);
+                    nextOccurrence.setDate(now.getDate() + nextDayDiff);
+                    nextOccurrence.setHours(alarmHour, alarmMinute, 0, 0);
+                    
+                } else if (reminder.repeatFrequency === 'monthly') {
+                    const reminderDayOfMonth = reminderDate.getDate();
+                    nextOccurrence = new Date(now.getFullYear(), now.getMonth(), reminderDayOfMonth, alarmHour, alarmMinute);
+                    if (now > nextOccurrence) {
+                        nextOccurrence.setMonth(now.getMonth() + 1);
+                    }
+                } else if (reminder.repeatFrequency === 'yearly') {
+                    const reminderMonth = reminderDate.getMonth();
+                    const reminderDayOfMonth = reminderDate.getDate();
+                    nextOccurrence = new Date(now.getFullYear(), reminderMonth, reminderDayOfMonth, alarmHour, alarmMinute);
+                    if (now > nextOccurrence) {
+                        nextOccurrence.setFullYear(now.getFullYear() + 1);
+                    }
+                }
+                
+                if (nextOccurrence && isNaN(nextOccurrence.getTime())) {
+                    console.error("Fecha de alarma inválida, no se pudo programar:", reminder);
+                    return null;
+                }
+                
+                return nextOccurrence;
+            };
+
+            const triggerAlarm = (id, data) => {
+                if (activeAlarm) return;
+                setActiveAlarm(data);
+                setIsAlarmModalOpen(true);
+
+                const { text, sound, isVibration, isLocationBased, location } = data;
+                
+                if ("Notification" in window && Notification.permission === "granted") {
+                    const notification = new Notification('Recordatorio', { 
+                        body: text,
+                        icon: 'https://placehold.co/48x48/007bff/ffffff?text=🔔'
+                    });
+
+                    if (isLocationBased && location) {
+                        notification.onclick = function(event) {
+                            event.preventDefault();
+                            const mapUrl = `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
+                            window.open(mapUrl, '_blank');
+                        };
+                    }
+                }
+                
+                if (alarmAudioRef.current && sound) {
+                    alarmAudioRef.current.src = sound;
+                    alarmAudioRef.current.load();
+                    alarmAudioRef.current.play();
+                }
+                
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'es-ES';
+                    window.speechSynthesis.speak(utterance);
+                }
+                
+                if (isVibration && 'vibrate' in navigator) {
+                    navigator.vibrate([1000, 500, 1000, 500, 1000]);
+                }
+
+                const reminderRef = doc(db, `artifacts/${appId}/users/${userId}/reminders`, id);
+                setDoc(reminderRef, { isAlarmDismissed: false }, { merge: true });
+            };
+
+            const stopAlarm = () => {
+                if (alarmAudioRef.current) {
+                    alarmAudioRef.current.pause();
+                    alarmAudioRef.current.currentTime = 0;
+                }
+                if ('vibrate' in navigator) navigator.vibrate(0);
+                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+
+                const reminderRef = doc(db, `artifacts/${appId}/users/${userId}/reminders`, activeAlarm.id);
+                setDoc(reminderRef, { isAlarmDismissed: true }, { merge: true });
+
+                setIsAlarmModalOpen(false);
+                setActiveAlarm(null);
+            };
+
+            const snoozeAlarm = () => {
+                stopAlarm();
+                if (activeAlarm) {
+                    const newTime = new Date(new Date().getTime() + 5 * 60000);
+                    const reminderRef = doc(db, `artifacts/${appId}/users/${userId}/reminders`, activeAlarm.id);
+                    setDoc(reminderRef, {
+                        date: newTime.toISOString().split('T')[0],
+                        time: newTime.toTimeString().split(' ')[0].substring(0, 5),
+                        isAlarmDismissed: false,
+                        repeatFrequency: 'none',
+                        isLocationBased: false
+                    }, { merge: true });
+                }
+            };
+            
+            const saveReminder = async () => {
+                if (!userId) {
+                    console.error("Usuario no autenticado, no se puede guardar el recordatorio.");
+                    return;
+                }
+
+                const text = newReminderText.trim();
+                const tags = newReminderTags.split('#').map(tag => tag.trim()).filter(tag => tag);
+                let reminderData;
+
+                if (isLocationBased) {
+                    if (!text || !newLocationName || !currentLocation) {
+                        setMessageModal({ isOpen: true, text: 'Por favor, rellena el texto y el nombre del lugar, y asegúrate de que tu ubicación esté disponible.', isError: true });
+                        return;
+                    }
+                    reminderData = {
+                        text,
+                        tags,
+                        location: { name: newLocationName, latitude: currentLocation.latitude, longitude: currentLocation.location.longitude },
+                        isLocationBased,
+                        isVibration,
+                        isCompleted: false,
+                        isAlarmDismissed: false,
+                        createdAt: new Date().toISOString()
+                    };
+                } else {
+                    if (!text || !newReminderTime || (repeatFrequency === 'none' && !newReminderDate)) {
+                         setMessageModal({ isOpen: true, text: 'Por favor, rellena el texto, la hora, y la fecha si no hay repetición.', isError: true });
+                         return;
+                    }
+                    reminderData = {
+                        text,
+                        tags,
+                        date: newReminderDate,
+                        time: newReminderTime,
+                        sound: alarmSound,
+                        repeatFrequency,
+                        selectedDays: repeatFrequency === 'weekly' ? selectedDays : [],
+                        isLocationBased,
+                        isVibration,
+                        isCompleted: false,
+                        isAlarmDismissed: false,
+                        createdAt: new Date().toISOString()
+                    };
+                }
+
+                setIsSaving(true);
+                try {
+                    if (editingId) {
+                        const reminderRef = doc(db, `artifacts/${appId}/users/${userId}/reminders`, editingId);
+                        await setDoc(reminderRef, { ...reminderData, isAlarmDismissed: false }, { merge: true });
+                    } else {
+                        const reminderRef = collection(db, `artifacts/${appId}/users/${userId}/reminders`);
+                        await addDoc(reminderRef, reminderData);
+                    }
+                    const newTags = tags.filter(tag => !allTags.some(t => t.name === tag));
+                    await Promise.all(newTags.map(tag => {
+                        const tagRef = doc(db, `artifacts/${appId}/users/${userId}/tags`, tag);
+                        return setDoc(tagRef, { name: tag });
+                    }));
+                    
+                    setMessageModal({ isOpen: true, text: '¡Recordatorio guardado con éxito!', isError: false });
+                    resetForm();
+                } catch (e) {
+                    console.error("Error al guardar/actualizar el recordatorio:", e);
+                    setMessageModal({ isOpen: true, text: 'Error al guardar el recordatorio. Por favor, inténtalo de nuevo.', isError: true });
+                } finally {
+                    setIsSaving(false);
+                }
+            };
+
+            const deleteReminder = async (id) => {
+                try {
+                    await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/reminders`, id));
+                    setMessageModal({ isOpen: true, text: '¡Recordatorio eliminado!', isError: false });
+                } catch (e) {
+                    console.error("Error al eliminar el recordatorio:", e);
+                    setMessageModal({ isOpen: true, text: 'Error al eliminar el recordatorio. Por favor, inténtalo de nuevo.', isError: true });
+                }
+            };
+
+            const markAsComplete = async (id) => {
+                try {
+                    const reminderRef = doc(db, `artifacts/${appId}/users/${userId}/reminders`, id);
+                    await setDoc(reminderRef, { isCompleted: true }, { merge: true });
+                    setMessageModal({ isOpen: true, text: '¡Recordatorio completado!', isError: false });
+                } catch (e) {
+                    console.error("Error al marcar como completado:", e);
+                    setMessageModal({ isOpen: true, text: 'Error al completar el recordatorio. Por favor, inténtalo de nuevo.', isError: true });
+                }
+            };
+
+            const unmarkAsComplete = async (id) => {
+                try {
+                    const reminderRef = doc(db, `artifacts/${appId}/users/${userId}/reminders`, id);
+                    await setDoc(reminderRef, { isCompleted: false }, { merge: true });
+                    setMessageModal({ isOpen: true, text: '¡Recordatorio restaurado!', isError: false });
+                } catch (e) {
+                    console.error("Error al restaurar el recordatorio:", e);
+                    setMessageModal({ isOpen: true, text: 'Error al restaurar el recordatorio. Por favor, inténtalo de nuevo.', isError: true });
+                }
+            };
+
+            const editReminder = (reminder) => {
+                setEditingId(reminder.id);
+                setNewReminderText(reminder.text);
+                setNewReminderTags(reminder.tags.join(' '));
+                setIsVibration(reminder.isVibration);
+                setIsLocationBased(reminder.isLocationBased);
+
+                if (reminder.isLocationBased) {
+                    setNewLocationName(reminder.location.name);
+                    setCurrentLocation({ latitude: reminder.location.latitude, longitude: reminder.location.longitude });
+                    setLocationStatus(`Lat: ${reminder.location.latitude.toFixed(4)}, Lng: ${reminder.location.longitude.toFixed(4)}`);
+                } else {
+                    setNewReminderDate(reminder.date);
+                    setNewReminderTime(reminder.time);
+                    setAlarmSound(reminder.sound);
+                    setSelectedDays(reminder.selectedDays || []);
+                    setRepeatFrequency(reminder.repeatFrequency || 'none');
+                }
+            };
+
+            const resetForm = () => {
+                setEditingId(null);
+                setNewReminderText('');
+                setNewReminderTags('');
+                setNewLocationName('');
+                setIsLocationBased(false);
+                setNewReminderDate('');
+                setNewReminderTime('');
+                setAlarmSound('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
+                setSelectedDays([]);
+                setIsVibration(false);
+                setLocationStatus('');
+                setRepeatFrequency('none');
+            };
+            
+            const deleteTag = async (tagId) => {
+              try {
+                await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/tags`, tagId));
+              } catch (e) {
+                console.error("Error al eliminar la etiqueta:", e);
+                setMessageModal({ isOpen: true, text: 'Error al eliminar la etiqueta. Por favor, inténtalo de nuevo.', isError: true });
+              }
+            };
+
+            const handleDayToggle = (day) => {
+                setSelectedDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
+            };
+
+            const handleTagClick = (tag) => {
+              const currentTags = newReminderTags.split(' ').filter(t => t.trim() !== '');
+              if (!currentTags.includes(tag.name)) {
+                setNewReminderTags(prev => prev ? `${prev} #${tag.name}` : `#${tag.name}`);
+              }
+            };
+
+            const getFilteredAndSortedReminders = () => {
+                let list = [...reminders];
+
+                list = list.filter(r => {
+                    const textMatch = r.text.toLowerCase().includes(searchText.toLowerCase());
+                    const tagsMatch = r.tags.some(tag => tag.toLowerCase().includes(searchText.toLowerCase()));
+                    return textMatch || tagsMatch;
+                });
+
+                if (filterType === 'time') {
+                    list = list.filter(r => !r.isLocationBased);
+                } else if (filterType === 'location') {
+                    list = list.filter(r => r.isLocationBased);
+                }
+
+                if (sortBy === 'createdAt') {
+                    list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                } else if (sortBy === 'text') {
+                    list.sort((a, b) => a.text.localeCompare(b.text));
+                }
+
+                return list;
+            };
+            
+            const allFilteredReminders = getFilteredAndSortedReminders();
+            const pendingReminders = allFilteredReminders.filter(r => !r.isCompleted);
+            const completedReminders = allFilteredReminders.filter(r => r.isCompleted);
+            
+            const isSaveDisabled = isSaving || (isLocationBased
+                ? !newReminderText || !newLocationName || !currentLocation
+                : !newReminderText || !newReminderTime || (repeatFrequency === 'none' && !newReminderDate) || (repeatFrequency === 'weekly' && selectedDays.length === 0));
+
+            const renderReminderItem = (reminder) => (
+                <div key={reminder.id} className={`reminder-card p-4 flex justify-between items-center transition-all duration-300 transform hover:scale-[1.02] ${reminder.isCompleted ? 'bg-gray-100 text-gray-500 opacity-70' : 'border-l-4 border-blue-500'}`}>
+                    <div className="flex-1">
+                        <p className={`text-lg text-gray-800 font-semibold ${reminder.isCompleted ? 'line-through text-gray-400' : ''}`}>{reminder.text}</p>
+                        {reminder.isLocationBased ? (
+                            <>
+                                <p className="text-sm text-gray-500 mt-1 flex items-center gap-1"><MapPin size={14} /> Lugar: {reminder.location.name}</p>
+                                <p className="text-xs text-gray-400 mt-1">Ubicación: {reminder.location.latitude.toFixed(4)}, {reminder.location.longitude.toFixed(4)}</p>
+                            </>
+                        ) : (
+                            <>
+                                {reminder.repeatFrequency === 'none' && reminder.date && (
+                                   <p className="text-sm text-gray-500 mt-1 flex items-center gap-1"><Calendar size={14} /> Fecha: {new Date(`${reminder.date}T${reminder.time}`).toLocaleString('es-ES', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                                )}
+                                {reminder.repeatFrequency === 'weekly' && reminder.selectedDays && reminder.selectedDays.length > 0 && (
+                                    <p className="text-sm text-gray-500 mt-1 flex items-center gap-1"><Calendar size={14} /> Semanal: {reminder.selectedDays.map(day => dayMapReverse[dayMap[day]]).join(', ')} a las {reminder.time}</p>
+                                )}
+                                {reminder.repeatFrequency === 'monthly' && reminder.date && (
+                                   <p className="text-sm text-gray-500 mt-1 flex items-center gap-1"><Calendar size={14} /> Mensual: El día {new Date(reminder.date).getDate()} a las {reminder.time}</p>
+                                )}
+                                {reminder.repeatFrequency === 'yearly' && reminder.date && (
+                                   <p className="text-sm text-gray-500 mt-1 flex items-center gap-1"><Calendar size={14} /> Anual: El {new Date(reminder.date).toLocaleDateString('es-ES', { month: 'long', day: 'numeric' })} a las {reminder.time}</p>
+                                )}
+                            </>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {reminder.tags.map((tag, index) => (
+                                <span key={index} className="tag flex items-center gap-1"><Tag size={12} />#{tag}</span>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        {!reminder.isCompleted && (
+                            <button onClick={() => editReminder(reminder)} className="text-gray-400 hover:text-blue-500 transition-colors">
+                                <Edit size={20} />
+                            </button>
+                        )}
+                        <button onClick={() => reminder.isCompleted ? unmarkAsComplete(reminder.id) : markAsComplete(reminder.id)} className={`transition-colors ${reminder.isCompleted ? 'text-blue-500 hover:text-blue-700' : 'text-green-500 hover:text-green-700'}`}>
+                            {reminder.isCompleted ? <Undo2 size={20} /> : <CheckCircle size={20} />}
+                        </button>
+                        <button onClick={() => deleteReminder(reminder.id)} className="text-gray-400 hover:text-red-500 transition-colors">
+                            <Trash2 size={20} />
+                        </button>
+                    </div>
+                </div>
+            );
+            
+            const renderOnboarding = () => (
+                <div className="flex flex-col items-center justify-center p-8 text-center min-h-screen">
+                    <h1 className="text-5xl sm:text-6xl font-extrabold text-blue-600 mb-4 animate-fade-in-up">Recordatorios</h1>
+                    <p className="text-xl sm:text-2xl text-gray-700 mb-8 max-w-lg animate-fade-in-up">Tu asistente personal para recordar todo, en cualquier momento y lugar.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12 max-w-xl">
+                        <div className="flex flex-col items-center p-4 bg-gray-100 rounded-xl shadow-sm">
+                            <Calendar size={48} className="text-blue-500 mb-2" />
+                            <span className="font-semibold text-gray-800">Recordatorios por fecha</span>
+                        </div>
+                        <div className="flex flex-col items-center p-4 bg-gray-100 rounded-xl shadow-sm">
+                            <MapPin size={48} className="text-blue-500 mb-2" />
+                            <span className="font-semibold text-gray-800">Alertas por ubicación</span>
+                        </div>
+                        <div className="flex flex-col items-center p-4 bg-gray-100 rounded-xl shadow-sm">
+                            <Tag size={48} className="text-blue-500 mb-2" />
+                            <span className="font-semibold text-gray-800">Etiquetas personalizadas</span>
+                        </div>
+                    </div>
+                    <button onClick={handleStartApp} className="w-full max-w-sm bg-blue-600 text-white font-bold py-4 px-8 rounded-full hover:bg-blue-700 transition-colors shadow-lg animate-fade-in-up">
+                        Comenzar
+                    </button>
+                </div>
+            );
+            
+            const renderMainApp = () => (
+                <div className="p-4 sm:p-8 flex flex-col items-center min-h-screen animate-fade-in">
+                    <div className="w-full max-w-2xl">
+                        <div className="flex justify-between items-center mb-6">
+                            <h1 className="text-4xl sm:text-5xl font-bold text-gray-800 text-center flex-1">Recordatorios</h1>
+                            <div className="flex items-center space-x-2 text-gray-500">
+                                {isOnline ? (
+                                  <div className="flex items-center space-x-1">
+                                    <Signal size={20} className="text-green-500" />
+                                    <span className="text-sm hidden sm:inline">Online</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center space-x-1">
+                                    <SignalZero size={20} className="text-red-500" />
+                                    <span className="text-sm hidden sm:inline">Offline</span>
+                                  </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {userId && (
+                            <div className="flex items-center justify-center space-x-2 text-sm text-gray-500 mb-4">
+                                <User size={16} />
+                                <span className="truncate">ID de Usuario: {userId}</span>
+                            </div>
+                        )}
+                        
+                        <div className="reminder-card p-6 mb-8 shadow-lg">
+                            <h2 className="text-xl font-semibold text-gray-800 mb-4">{editingId ? 'Editar Recordatorio' : 'Crear un Nuevo Recordatorio'}</h2>
+                            <div className="flex flex-col space-y-4">
+                                <div className="flex items-center gap-2 border border-gray-300 rounded-lg p-3 focus-within:ring-2 focus-within:ring-blue-500">
+                                    <Hand size={20} className="text-gray-400" />
+                                    <input
+                                        type="text"
+                                        value={newReminderText}
+                                        onChange={(e) => setNewReminderText(e.target.value)}
+                                        placeholder="Ej. Comprar leche"
+                                        className="flex-1 bg-transparent outline-none"
+                                    />
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                   <Tag size={20} className="text-gray-400" />
+                                   {allTags.map(tag => (
+                                     <span
+                                       key={tag.id}
+                                       onClick={() => handleTagClick(tag)}
+                                       className="px-2 py-1 bg-gray-200 text-gray-700 text-sm font-medium rounded-full cursor-pointer hover:bg-blue-500 hover:text-white transition-colors"
+                                     >
+                                       #{tag.name}
+                                     </span>
+                                   ))}
+                                </div>
+                                <div className="flex items-center gap-2 border border-gray-300 rounded-lg p-3 focus-within:ring-2 focus-within:ring-blue-500">
+                                    <Tag size={20} className="text-gray-400" />
+                                    <input
+                                        type="text"
+                                        value={newReminderTags}
+                                        onChange={(e) => setNewReminderTags(e.target.value)}
+                                        placeholder="Escribe tus etiquetas separadas por #"
+                                        className="flex-1 bg-transparent outline-none"
+                                    />
+                                </div>
+                                
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={isLocationBased}
+                                        onChange={(e) => setIsLocationBased(e.target.checked)}
+                                        className="form-checkbox h-5 w-5 text-blue-600 rounded"
+                                    />
+                                    <label className="text-gray-700 font-medium">Recordatorio basado en ubicación</label>
+                                </div>
+                                {isLocationBased ? (
+                                    <div className="flex flex-col space-y-2">
+                                        <div className="flex items-center gap-2 border border-gray-300 rounded-lg p-3 focus-within:ring-2 focus-within:ring-blue-500">
+                                            <Map size={20} className="text-gray-400" />
+                                            <input
+                                                type="text"
+                                                value={newLocationName}
+                                                onChange={(e) => setNewLocationName(e.target.value)}
+                                                placeholder="Nombre del lugar (Ej. Casa, Trabajo)"
+                                                className="flex-1 bg-transparent outline-none"
+                                            />
+                                        </div>
+                                        <button onClick={getCurrentLocation} className="bg-blue-100 text-blue-600 font-semibold py-2 px-4 rounded-lg hover:bg-blue-200 transition-colors">
+                                            Usar mi ubicación actual
+                                        </button>
+                                        <p className="text-sm text-gray-500">{locationStatus}</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="flex items-center gap-2 border border-gray-300 rounded-lg p-3 focus-within:ring-2 focus-within:ring-blue-500">
+                                            <Bell size={20} className="text-gray-400" />
+                                            <input type="time" value={newReminderTime} onChange={(e) => setNewReminderTime(e.target.value)} className="flex-1 bg-transparent outline-none" />
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-2">
+                                            <label htmlFor="repeatFrequency" className="text-gray-600 font-medium">Repetir:</label>
+                                            <select id="repeatFrequency" value={repeatFrequency} onChange={(e) => {
+                                                setRepeatFrequency(e.target.value);
+                                                if (e.target.value !== 'weekly') {
+                                                    setSelectedDays([]);
+                                                }
+                                            }} className="flex-1 p-2 border border-gray-300 rounded-lg">
+                                                <option value="none">Nunca</option>
+                                                <option value="weekly">Semanalmente</option>
+                                                <option value="monthly">Mensualmente</option>
+                                                <option value="yearly">Anualmente</option>
+                                            </select>
+                                        </div>
+                                        
+                                        {repeatFrequency === 'none' && (
+                                           <div className="flex items-center gap-2 border border-gray-300 rounded-lg p-3 focus-within:ring-2 focus-within:ring-blue-500">
+                                               <Calendar size={20} className="text-gray-400" />
+                                               <input type="date" value={newReminderDate} onChange={(e) => setNewReminderDate(e.target.value)} className="flex-1 bg-transparent outline-none" />
+                                           </div>
+                                        )}
+                                        
+                                        {repeatFrequency === 'weekly' && (
+                                           <div className="mt-2">
+                                               <label className="text-gray-600 font-medium">Días de la semana:</label>
+                                               <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mt-2">
+                                                   {Object.keys(dayMap).map(day => (
+                                                       <label key={day} className="flex flex-col items-center cursor-pointer">
+                                                           <input
+                                                               type="checkbox"
+                                                               checked={selectedDays.includes(day)}
+                                                               onChange={() => handleDayToggle(day)}
+                                                               className="form-checkbox h-4 w-4 text-blue-600 rounded"
+                                                           />
+                                                           <span className="text-xs text-gray-700">{day.substring(0, 3)}</span>
+                                                       </label>
+                                                   ))}
+                                               </div>
+                                           </div>
+                                        )}
+                                        
+                                        {(repeatFrequency === 'monthly' || repeatFrequency === 'yearly') && (
+                                            <div className="flex items-center gap-2 border border-gray-300 rounded-lg p-3 focus-within:ring-2 focus-within:ring-blue-500">
+                                                <Calendar size={20} className="text-gray-400" />
+                                                <input type="date" value={newReminderDate} onChange={(e) => setNewReminderDate(e.target.value)} className="flex-1 bg-transparent outline-none" />
+                                            </div>
+                                        )}
+                                        
+                                        <div className="mt-4">
+                                            <label htmlFor="alarmSound" className="text-gray-600 font-medium">Sonido de Alarma:</label>
+                                            <select id="alarmSound" value={alarmSound} onChange={(e) => setAlarmSound(e.target.value)} className="w-full mt-2 p-3 text-sm text-center border-2 border-gray-300 rounded-xl focus:outline-none focus:border-blue-500">
+                                                <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3">Melodía 1</option>
+                                                <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3">Melodía 2</option>
+                                                <option value="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3">Melodía 3</option>
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                            
+                            <div className="flex items-center space-x-4 mt-6">
+                                <label className="flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={isVibration}
+                                        onChange={(e) => setIsVibration(e.target.checked)}
+                                        className="form-checkbox h-5 w-5 text-blue-600 rounded"
+                                    />
+                                    <span className="ml-2 text-gray-700 text-sm">Vibrar</span>
+                                </label>
+                            </div>
+                            <button onClick={saveReminder} disabled={isSaveDisabled} className={`w-full text-white font-bold py-3 px-6 rounded-lg shadow-md mt-6 ${isSaveDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 transition-colors'}`}>
+                                {isSaving ? (
+                                    <div className="flex items-center justify-center">
+                                        <RefreshCw size={20} className="animate-spin mr-2" />
+                                        <span>{editingId ? 'Actualizando...' : 'Guardando...'}</span>
+                                    </div>
+                                ) : (
+                                    <span>{editingId ? 'Actualizar Recordatorio' : 'Guardar Recordatorio'}</span>
+                                )}
+                            </button>
+                            {editingId && (
+                                <button onClick={resetForm} className="w-full mt-2 bg-gray-300 text-gray-800 font-bold py-3 px-6 rounded-lg hover:bg-gray-400 transition-colors">
+                                    Cancelar Edición
+                                </button>
+                            )}
+                        </div>
+                        
+                        <div className="reminder-card p-6 mb-8 shadow-lg no-scrollbar">
+                            <h2 className="text-xl font-semibold text-gray-800 mb-4">Recordatorios Pendientes</h2>
+                            <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4 mb-4">
+                                <div className="relative flex-1 w-full sm:w-auto">
+                                    <input
+                                        type="text"
+                                        value={searchText}
+                                        onChange={(e) => setSearchText(e.target.value)}
+                                        placeholder="Buscar por texto o etiqueta..."
+                                        className="w-full p-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 pl-10"
+                                    />
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <Search size={20} className="text-gray-400" />
+                                    </div>
+                                    {searchText && (
+                                        <button onClick={() => setSearchText('')} className="absolute inset-y-0 right-0 pr-3 flex items-center transition-colors text-gray-400 hover:text-red-500">
+                                            <XCircle size={20} />
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2 border border-gray-300 rounded-lg p-3 focus-within:ring-2 focus-within:ring-blue-500 w-full sm:w-auto">
+                                    <Filter size={20} className="text-gray-400" />
+                                    <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="flex-1 bg-transparent outline-none">
+                                        <option value="all">Todos los tipos</option>
+                                        <option value="time">Por fecha/hora</option>
+                                        <option value="location">Por ubicación</option>
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2 border border-gray-300 rounded-lg p-3 focus-within:ring-2 focus-within:ring-blue-500 w-full sm:w-auto">
+                                    <SortAsc size={20} className="text-gray-400" />
+                                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="flex-1 bg-transparent outline-none">
+                                        <option value="createdAt">Por Fecha de Creación</option>
+                                        <option value="text">Alfabéticamente</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-4">
+                                {pendingReminders.length > 0 ? (
+                                    pendingReminders.map(renderReminderItem)
+                                ) : (
+                                    <p className="text-center text-gray-500">¡Aún no tienes recordatorios pendientes!</p>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="reminder-card p-6 shadow-lg no-scrollbar">
+                            <h2 className="text-xl font-semibold text-gray-800 mb-4 flex justify-between items-center">
+                                Recordatorios Completados
+                                <button onClick={() => setShowCompleted(!showCompleted)} className="text-sm text-blue-600 hover:text-blue-800 transition-colors">
+                                    {showCompleted ? 'Ocultar' : 'Mostrar'}
+                                </button>
+                            </h2>
+                            {showCompleted && (
+                                <div className="space-y-4">
+                                    {completedReminders.length > 0 ? (
+                                        completedReminders.map(renderReminderItem)
+                                    ) : (
+                                        <p className="text-center text-gray-500">¡Aún no has completado ningún recordatorio!</p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div className="reminder-card p-6 mb-8 shadow-lg">
+                          <h2 className="text-xl font-semibold text-gray-800 mb-4">Mis Etiquetas</h2>
+                          <div className="flex flex-wrap gap-2">
+                            {allTags.length > 0 ? (
+                              allTags.map(tag => (
+                                <div key={tag.id} className="flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full font-medium">
+                                  <span>#{tag.name}</span>
+                                  <button onClick={() => deleteTag(tag.id)} className="text-blue-600 hover:text-blue-900">
+                                    <XCircle size={16} />
+                                  </button>
+                                </div>
+                              ))
+                            ) : (
+                              <p className="text-gray-500 text-sm">Aún no tienes etiquetas. Se crearán automáticamente cuando guardes un recordatorio con una nueva etiqueta.</p>
+                            )}
+                          </div>
+                        </div>
+                    </div>
+
+                    {isAlarmModalOpen && activeAlarm && (
+                        <div className="modal fixed inset-0 flex items-center justify-center z-50 transition-opacity duration-300">
+                            <div className="reminder-card p-8 m-4 max-w-md w-full text-center animate-fade-in-up">
+                                <h3 className="text-2xl font-bold text-gray-800 mb-2">¡Es Hora!</h3>
+                                <p className="text-gray-700 mb-6 text-lg">{activeAlarm.text}</p>
+                                <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+                                    <button onClick={snoozeAlarm} className="w-full bg-yellow-500 text-white font-bold py-3 px-8 rounded-lg hover:bg-yellow-600 transition-colors shadow-lg">
+                                        Posponer (5 min)
+                                    </button>
+                                    <button onClick={stopAlarm} className="w-full bg-gray-500 text-white font-bold py-3 px-8 rounded-lg hover:bg-gray-600 transition-colors shadow-lg">
+                                        Detener
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {messageModal.isOpen && (
+                        <div className="fixed inset-0 flex items-center justify-center z-50">
+                            <div className={`p-8 rounded-lg shadow-xl m-4 text-center transform transition-transform duration-300 animate-scale-in ${messageModal.isError ? 'bg-red-500' : 'bg-green-500'}`}>
+                                <div className="flex justify-center mb-4">
+                                    {messageModal.isError ? (
+                                        <XCircle size={48} className="text-white" />
+                                    ) : (
+                                        <Check size={48} className="text-white" />
+                                    )}
+                                </div>
+                                <p className="text-white text-lg font-semibold mb-4">{messageModal.text}</p>
+                                <button onClick={() => setMessageModal({ ...messageModal, isOpen: false })} className="mt-2 bg-white text-gray-800 font-bold py-2 px-6 rounded-full hover:bg-gray-100">
+                                    Entendido
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <audio ref={alarmAudioRef} loop></audio>
+                </div>
+            );
+            
+            return isFirstLaunch ? renderOnboarding() : renderMainApp();
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
